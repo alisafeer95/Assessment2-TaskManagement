@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Param, Put, Delete, ConflictException } from '@nestjs/common';
 import { CreateTaskDto, UpdateTaskDto } from 'src/dtos/task.dto';
 import { CreateUserDto } from 'src/dtos/user.dto';
+import { userWithProjectTasks } from 'src/dtos/userwithtasksandproject.dto';
 import { UserService } from 'src/services/user/user.service';
 
 @Controller('users')
@@ -18,15 +19,16 @@ export class UserController {
 
   @Post('create-with-projects-tasks')
   async createWithProjectsAndTasks(
-    @Body() body: {
-      user: CreateUserDto;
-      projectId: number;
-      tasks: CreateTaskDto[];
-    },
+    // @Body() body: {
+    //   user: CreateUserDto;
+    //   projectId: number;
+    //   tasks: CreateTaskDto[];
+    // },
+    @Body() userObject:userWithProjectTasks
   ) {
-    const existingUser = await this.userService.findByEmail(body.user.email)
-    if(existingUser!=null) throw new ConflictException(`User with email: ${body.user.email} already exists`);
-    return this.userService.createUserWithTasksAndProject(body.user, body.projectId, body.tasks);
+    const existingUser = await this.userService.findByEmail(userObject.user.email)
+    if(existingUser!=null) throw new ConflictException(`User with email: ${userObject.user.email} already exists`);
+    return this.userService.createUserWithTasksAndProject(userObject);
   }
 
   @Post('assignUserToProject')

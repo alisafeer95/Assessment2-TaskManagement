@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CreateUserDto } from 'src/dtos/user.dto';
 import { CreateTaskDto, UpdateTaskDto } from 'src/dtos/task.dto';
@@ -6,6 +6,7 @@ import { User } from 'src/entities/user.entity';
 import { UserRepository } from 'src/repository/user.repository';
 import { ProjectRepository } from 'src/repository/project.repository';
 import { TaskRepository } from 'src/repository/task.repository';
+import { userWithProjectTasks } from 'src/dtos/userwithtasksandproject.dto';
 
 @Injectable()
 export class UserService {
@@ -15,19 +16,19 @@ export class UserService {
     private readonly projectRepository: ProjectRepository,
     private readonly dataSource: DataSource,
   ) {}
-
-  async createUserWithTasksAndProject(dto: CreateUserDto, projectId: number, tasks: CreateTaskDto[]): Promise<User> {
+  //async createUserWithTasksAndProject(dto: CreateUserDto, projectId: number, tasks: CreateTaskDto[])
+  async createUserWithTasksAndProject(userObject:userWithProjectTasks): Promise<User> {
     try {
       return await this.dataSource.transaction(async (manager) => {
-        const user = await this.userRepository.createUser(dto);
+        const user = await this.userRepository.createUser(userObject.user);
         if (!user) throw new InternalServerErrorException('Failed to create user');
 
-        const project = await this.projectRepository.findById(projectId);
-        if (!project) throw new NotFoundException(`Project with ID ${projectId} not found`);
+        const project = await this.projectRepository.findById(userObject.projectId);
+        if (!project) throw new NotFoundException(`Project with ID ${userObject.projectId} not found`);
 
         await manager.createQueryBuilder().relation(User, 'projects').of(user).add(project);
 
-        for (const taskDto of tasks) {
+        for (const taskDto of userObject.tasks) {
             taskDto.user=user;
             taskDto.project=project;
           //const task = await this.taskRepository.createTask({ ...taskDto, user, project });
@@ -39,7 +40,7 @@ export class UserService {
       });
     } catch (error) {
       console.error('Transaction failed:', error);
-      throw new InternalServerErrorException('Transaction failed, rolling back');
+      throw new InternalServerErrorException(`${error.message} while creating user ${userObject.user.name} with ${userObject.tasks.length} tasks for project.`);
     }
   }
 
@@ -48,31 +49,42 @@ export class UserService {
   }
 
   async assignUserToProject(userId: number, projectId: number): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
-      const user = await this.userRepository.findById(userId);
-      if (!user) throw new NotFoundException(`User with ID ${userId} not found`);
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const user = await this.userRepository.findById(userId);
+        if (!user) throw new NotFoundException(`User with ID ${userId} not found`);
+  
+        const project = await this.projectRepository.findById(projectId);
+        if (!project) throw new NotFoundException(`Project with ID ${projectId} not found`);
+  
+        await manager.createQueryBuilder().relation(User, 'projects').of(user).add(project);
+  
+        return `User ${userId} successfully assigned to project ${projectId}`;
+      });      
+    } catch (error) {
+      console.error('Error while assigning user to objects');
+      throw new BadRequestException(`${error.message} while assigning user to project`);
+    }
 
-      const project = await this.projectRepository.findById(projectId);
-      if (!project) throw new NotFoundException(`Project with ID ${projectId} not found`);
-
-      await manager.createQueryBuilder().relation(User, 'projects').of(user).add(project);
-
-      return `User ${userId} successfully assigned to project ${projectId}`;
-    });
   }
 
   async unassignUserFromProject(userId: number, projectId: number): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
-      const user = await this.userRepository.findById(userId);
-      if (!user) throw new NotFoundException(`User with ID ${userId} not found`);
-
-      const project = await this.projectRepository.findById(projectId);
-      if (!project) throw new NotFoundException(`Project with ID ${projectId} not found`);
-
-      await manager.createQueryBuilder().relation(User, 'projects').of(user).remove(project);
-
-      return `User ${userId} successfully unassigned from project ${projectId}`;
-    });
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const user = await this.userRepository.findById(userId);
+        if (!user) throw new NotFoundException(`User with ID ${userId} not found`);
+  
+        const project = await this.projectRepository.findById(projectId);
+        if (!project) throw new NotFoundException(`Project with ID ${projectId} not found`);
+  
+        await manager.createQueryBuilder().relation(User, 'projects').of(user).remove(project);
+  
+        return `User ${userId} successfully unassigned from project ${projectId}`;
+      });  
+    } catch (error) {
+      throw new BadRequestException(`${error.message} while removing user from project`);
+    }
+    
   }
   async updateUserTasks(userId: number, projectId: number, tasks: UpdateTaskDto[]): Promise<string> {
     try {
@@ -89,7 +101,7 @@ export class UserService {
           });
     } catch (error) {
         console.log(error);
-        throw error;
+        throw new BadRequestException(`${error.message} while updating user tasks`);
     }
   
 
